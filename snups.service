@@ -1,0 +1,14 @@
+[Unit]
+Description=SN UPS Service
+
+[Service]
+ExecStart=/home/pi/src/snups/snups.py
+WorkingDirectory=/
+Type=simple
+Restart=on-failure
+User=root
+Group=root
+OOMScoreAdjust=-100
+
+[Install]
+WantedBy=multi-user.target

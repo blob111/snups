@@ -1,0 +1,17 @@
+[Unit]
+Description=SN Cut-off-Power Service
+DefaultDependencies=no
+After=umount.target
+Before=shutdown.target
+
+[Service]
+ExecStart=/home/pi/src/snups/sncutpwr.sh
+WorkingDirectory=/
+Type=oneshot
+StandardOutput=journal+console
+StandardError=inherit
+User=root
+Group=root
+
+[Install]
+WantedBy=poweroff.target
