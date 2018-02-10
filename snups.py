@@ -5,14 +5,17 @@ import sys
 import syslog
 import time
 from gpiozero import OutputDevice, Button
-import queue
+from multiprocessing import Queue
 
 GPIO_BTN = 4
 GPIO_LBO = 22
+GPIO_PWR = 23
 GPIO_DEBOUNCE = 0.2
 SHUTDOWN_WAIT = 20
 LOGMSG_BTN = 'SN UPS: Activate poweroff by button press (GPIO {})'.format(GPIO_BTN)
 LOGMSG_LBO = 'SN UPS: Activate poweroff due to low battery (GPIO {})'.format(GPIO_LBO)
+EVENT_GPIO = 10
+EVENT_CHILD_END = 20
 
 ###
 ### GPIO Handler. Put activated device on queue
@@ -20,7 +23,7 @@ LOGMSG_LBO = 'SN UPS: Activate poweroff due to low battery (GPIO {})'.format(GPI
 
 def gpio_handler(device):
 	global q
-	q.put(device)
+	q.put((EVENT_GPIO, device.pin.number))
 	return
 	
 ###
@@ -46,38 +49,57 @@ def sn_shutdown(logmsg):
 ### Main program starts here
 ###
 
-# Open logger
-syslog.openlog(logoption=syslog.LOG_PID, facility=syslog.LOG_USER)
+if __name__ == '__main__':
 
-# Create queue
-q = queue.Queue()
+    # Open logger
+    syslog.openlog(logoption=syslog.LOG_PID, facility=syslog.LOG_USER)
+    
+    # Set CTRL and LBO pins as input pull-up and assign callback handler
+    btn = Button(GPIO_BTN, pull_up=True, bounce_time=GPIO_DEBOUNCE)
+    btn.when_pressed = gpio_handler
+    lbo = Button(GPIO_LBO, pull_up=True, bounce_time=GPIO_DEBOUNCE)
+    lbo.when_pressed = gpio_handler
 
-# Set CTRL and LBO pins as input pull-up and assign callback handler
-btn = Button(GPIO_BTN, pull_up=True, bounce_time=GPIO_DEBOUNCE)
-btn.when_pressed = gpio_handler
-lbo = Button(GPIO_LBO, pull_up=True, bounce_time=GPIO_DEBOUNCE)
-lbo.when_pressed = gpio_handler
-
-# Shutdown if LBO is already active
-if lbo.is_pressed:
-	sn_shutdown(LOGMSG_LBO)
-
-# Log a message and enter to a loop
-syslog.syslog(syslog.LOG_NOTICE, 'SN UPS: Installed handlers on GPIO: {} (BTN), {} (LBO)'.format(GPIO_BTN, GPIO_LBO))
-while True:
-	
-	# Receive device from queue and call shutdown routine if correct pin activated
-	device = q.get()
-	pin = device.pin.number
-	if pin == GPIO_BTN:
-		sn_shutdown(LOGMSG_BTN)
-	elif pin == GPIO_LBO:
-		
-		## Double check for LBO is active
-		if lbo.is_pressed:
-			sn_shutdown(LOGMSG_LBO)
-	else:
-		print("SN UPS: Received event from unexpected pin {}".format(pin))
-
-# Unreachable point
-exit(0)
+    # Set PWR pin as input pull-up and assign callback handler
+    pwr = Button(GPIO_PWR, pull_up=True, bounce_time=GPIO_DEBOUNCE)
+    pwr.when_pressed = gpio_handler
+    pwr.when_released = gpio_handler
+    
+    # Shutdown if LBO is already active
+    if lbo.is_pressed:
+        sn_shutdown(LOGMSG_LBO)
+    
+    # Create queue
+    q = Queue()
+    
+    # Log a message and enter to a loop
+    syslog.syslog(syslog.LOG_NOTICE, 'SN UPS: Installed handlers on GPIO: {} (BTN), {} (LBO), {} (PWR)'.format(
+        GPIO_BTN, GPIO_LBO, GPIO_PWR))
+    while True:
+        
+        # Receive event and parameter from queue
+        (event, param) = q.get()
+        
+        if event == EVENT_GPIO:
+            pin = param
+            if pin == GPIO_BTN:
+                sn_shutdown(LOGMSG_BTN)
+            elif pin == GPIO_LBO:
+                
+                ## Double check for LBO is active
+                if lbo.is_pressed:
+                    sn_shutdown(LOGMSG_LBO)
+            elif pin == GPIO_PWR:
+                if pwr.is_pressed:
+                    syslog.syslog(syslog.LOG_WARNING, 'SN UPS: Power failure')
+                else:
+                    syslog.syslog(syslog.LOG_WARNING, 'SN UPS: Power restored')
+            else:
+                syslog.syslog(syslog.LOG_NOTICE, 'SN UPS: Received event from unexpected pin {}'.format(pin))
+                
+        else:
+            syslog.syslog(syslog.LOG_NOTICE, 'SN UPS: Received unexpected event {}'.format(event))
+    
+    # Unreachable point
+    exit(0)
+    
