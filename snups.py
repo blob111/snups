@@ -28,10 +28,13 @@ EVENT_GPIO = 10
 EVENT_CHILD_END = 20
 
 DNS_TIMEOUT = 10
+DNS_ATTEMPTS = 3
+DNS_SLEEP = 10
 DNS_MX_MAX = 3
 DNS_Q_PROG = '/usr/bin/host -t mx -W {}'.format(DNS_TIMEOUT)
 DNS_Q_MATCH = r' mail is handled by ([0-9]+) (.+)\.$'
 DNS_Q_NOMX = r' has no MX record$'
+DNS_Q_NXDOMAIN = r'^Host .* not found: 3\(NXDOMAIN\)$'
 
 ###
 ### GPIO Handler. Put activated device on queue
@@ -72,6 +75,7 @@ def make_mx_list(a):
     # Request MX records for domain part of email address
     user, domain = a.split('@')
     dnsq = '{} {}'.format(DNS_Q_PROG, domain)
+    nx = False
     try:
         o = check_output(dnsq, shell=True, universal_newlines=True)
     except:
@@ -96,13 +100,19 @@ def make_mx_list(a):
                 mxd = {domain: 0}
                 break
                 
+            # If domain not existed
+            m = re.search(DNS_Q_NXDOMAIN, e)
+            if m:
+                nx = True
+                break
+                
         # Make MX list sorted by priority
         mxl = sorted(mxd.keys(), key = lambda x: mxd[x])
         
     # truncate MX list to maximum allowed elements
     mxl = mxl[0:DNS_MX_MAX]
         
-    return mxl
+    return nx, mxl
     
 ###
 ### Send mail routine
@@ -115,9 +125,18 @@ def sendmail(q, t, froma, toa, subj, msg, sign):
     fmsg = 'From: {}\r\nTo: {}\r\nSubject: {}\r\n\r\n{} at {}\r\n\r\n--\r\nWBR,\r\n{}\r\n'.format(
         froma, toa, subj, msg, ts, sign)
         
-    # Get MX list and check it is not empty
-    mxl = make_mx_list(toa)
-    if not mxl:
+    # Get MX list
+    attempts = DNS_ATTEMPTS
+    nx, mxl = make_mx_list(toa)
+    while not nx and not mxl and attempts:
+        sleep(DNS_SLEEP)
+        attempts -= 1
+        nx, mxl = make_mx_list(toa)
+        
+    # Error check
+    if nx:
+        syslog.syslog(syslog.LOG_NOTICE, '{}: Sending mail failed: domain not existed for {}'.format(MSG_PFX, toa))
+    elif not mxl:
         syslog.syslog(syslog.LOG_NOTICE, '{}: Sending mail failed: error finding mail server for {}'.format(MSG_PFX, toa))
         
     # Try to send mail through MX server in MX list in order
