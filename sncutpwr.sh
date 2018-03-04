@@ -1,7 +1,7 @@
 #! /bin/sh
 
 GPIO_CTRL=4
-SLEEP=6
+SLEEP=8
 
 DATE=`/bin/date`
 echo "Activate power cut-off by driving low GPIO ${GPIO_CTRL} at ${DATE}"
