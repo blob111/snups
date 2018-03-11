@@ -11,6 +11,7 @@ from subprocess import check_output
 from time import sleep, time, localtime, strftime
 from gpiozero import OutputDevice, Button
 from multiprocessing import Process, Queue
+from socket import getfqdn
 from smtplib import SMTP, SMTPRecipientsRefused, SMTPSenderRefused, SMTPAuthenticationError
 from ssl import create_default_context
 
@@ -165,10 +166,11 @@ def make_mx_list(a):
 def sendmail(q, t, froma, toa, subj, msg, sign, cf):
     """Send email message by means of SMTP protocol."""
 
-    pid = os.getpid()
     ts = strftime('%Y-%m-%d %H:%M:%S', localtime(t))
-    fmsg = 'From: {}\r\nTo: {}\r\nSubject: {}\r\n\r\n{} at {}\r\n\r\n--\r\nWBR,\r\n{}\r\n'.format(
-        froma, toa, subj, msg, ts, sign)
+    pid = os.getpid()
+    hostname = getfqdn()
+    fmsg = 'From: {}\r\nTo: {}\r\nSubject: {}\r\n\r\n{} at {} on {}\r\n\r\n--\r\nWBR,\r\n{}\r\n'.format(
+        froma, toa, subj, msg, ts, hostname, sign)
 
     # Use configured server or ...
     if cf['server']:
